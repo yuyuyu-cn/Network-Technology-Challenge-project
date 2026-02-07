@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Star-CDN 态势感知系统 v5.0</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        :root { --panel-bg: rgba(5, 15, 25, 0.95); --accent: #00f2ff; }
+        
+        /* 1. 确保最外层容器有固定尺寸 */
+        body, html { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            overflow: hidden; background: #000; 
+            color: white; font-family: "Microsoft YaHei", sans-serif; 
+        }
+        
+        /* 2. 主容器必须撑满，否则地球无法显示 */
+        #app { 
+            width: 100%; 
+            height: 100%; /* 默认全屏 */
+            position: relative; 
+            transition: height 0.4s ease-in-out; 
+        }
+
+        /* 顶部控制面板 */
+        #nav-bar { 
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%); 
+            display: flex; gap: 15px; z-index: 1000; 
+            background: var(--panel-bg); padding: 8px 18px; 
+            border-radius: 6px; border: 1px solid rgba(0, 242, 255, 0.3);
+            align-items: center; box-shadow: 0 4px 20px rgba(0,0,0,0.9);
+        }
+
+        .group-label { font-size: 11px; color: #666; text-transform: uppercase; }
+        
+        .btn-group { display: flex; background: #0a141e; border-radius: 4px; padding: 2px; border: 1px solid #233446; }
+        .nav-btn { 
+            background: transparent; border: none; color: #95a5a6; 
+            padding: 5px 12px; cursor: pointer; border-radius: 3px; 
+            font-size: 13px; transition: 0.2s;
+        }
+        .nav-btn.active { background: var(--accent); color: #000; font-weight: bold; }
+
+        .toggle-btn {
+            background: #0a141e; border: 1px solid #233446; color: #95a5a6;
+            padding: 5px 12px; cursor: pointer; border-radius: 4px; font-size: 13px;
+        }
+        .toggle-btn.on { border-color: var(--accent); color: var(--accent); }
+
+        #node-selector { 
+            background: #000; color: var(--accent); border: 1px solid #233446;
+            padding: 4px; border-radius: 4px; outline: none; font-size: 13px;
+        }
+
+        /* 3. 分析面板初始高度为0，不影响地球加载 */
+        #analytics-view { 
+            position: fixed; bottom: 0; left: 0; width: 100%; height: 0; 
+            background: #050b14; transition: height 0.4s ease-in-out; 
+            z-index: 1001; display: flex; overflow: hidden;
+        }
+        
+        /* 当面板打开时，给它加个顶边框 */
+        #analytics-view.open { border-top: 1px solid var(--accent); }
+
+        .chart-box { flex: 1; height: 100%; }
+        #topo-2d-container { flex: 1.5; border-right: 1px solid #1a2a3a; }
+    </style>
+</head>
+<body>
+    <div id="nav-bar">
+        <span class="group-label">视角模式</span>
+        <div class="btn-group">
+            <button id="view-ov" class="nav-btn active" onclick="changeView('OVERVIEW')">全局概览</button>
+            <button id="view-track" class="nav-btn" onclick="changeView('FOLLOW')">跟踪</button>
+        </div>
+
+        <select id="node-selector" onchange="selectTarget(this.value)">
+            <option value="">快速定位...</option>
+        </select>
+
+        <div style="width: 1px; height: 16px; background: #233446;"></div>
+
+        <button id="toggle-ana" class="toggle-btn" onclick="toggleOption('ANA')">数据分析</button>
+    </div>
+
+    <div id="app"></div>
+    
+    <div id="analytics-view">
+        <div id="topo-2d-container" class="chart-box"></div>
+        <div id="main-chart-right" class="chart-box"></div>
+    </div>
+
+    <script type="module" src="/main.js"></script>
+</body>
+</html>
+
