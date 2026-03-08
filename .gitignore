@@ -1,4 +1,4 @@
 # dirs
 node_modules/
-__pycache__/*
-logs/*
+__pycache__/
+logs/
