@@ -9,8 +9,8 @@ from config import action, LogColor
 class Engine:
     def __init__(self):
         self.content = dict()
-        self.hosts = set()
-        self.switches = set()
+        self.hosts = dict()
+        self.switches = dict()
         self.rules = dict()
         self.G = nx.DiGraph()   # 用于计算最短路
         self.net = Mininet(switch=OVSSwitch)
@@ -20,49 +20,53 @@ class Engine:
         self.net.stop()
     
     def __ensure_host(self, node):
-        if node in self.hosts:
+        if node in self.hosts.keys():
             return self.net.get(node)
         h = self.net.addHost(node)
-        LogColor.debug("111")
-        self.hosts.add(node)
-        h.start()
+        self.hosts[node] = 0
         return h
     
     def __ensure_switch(self, sw):
-        if sw in self.switches:
+        if sw in self.switches.keys():
             return self.net.get(sw)
         s = self.net.addSwitch(sw)
-        self.switches.add(s)
-        s.start()
-
-    def __link_exists(self, n1, n2):
-        links = self.net.linksBetween(n1, n2)
-        return len(links) > 0
+        self.switches[sw] = 0
+        s.start([])
     
     def addLink(self, link):
         # 先在mininet中加入链路
         n1 : str = link['src']
         n2 : str = link['dst']
-        LogColor.debug(f'src: {n1}')
-        LogColor.debug(f'dst: {n2}')
+        # LogColor.debug(f'src: {n1}')
+        # LogColor.debug(f'dst: {n2}')
         # 处理节点可能不存在的问题
         for n in (n1, n2):
             if n.startswith('GS'):
                 self.__ensure_host(n)
+                intf_name = n + '-eth' + str(self.hosts[n])
+                self.hosts[n] += 1
             else:
                 self.__ensure_switch(n)
-
-        LogColor.debug("111")
+                intf_name = n + '-eth' + str(self.switches[n])
+                self.switches[n] += 1
+            if n == n1:
+                intf_name1 = intf_name
+            else:
+                intf_name2 = intf_name
+                
         # 处理链路可能不存在的问题
         links = self.net.linksBetween(n1, n2)
+        LogColor.info(f'links between {n1} and {n2} : {links}')
         if not links:
             lk = self.net.addLink(
                 n1, n2,
                 cls=TCLink,
-                bw=link['bw_mbps'],
-                delay=link['delay_ms'],
-                jitter=link['jitter_ms'],
-                loss=link['loss_pct'],
+                intfName1=intf_name1,
+                intfName2=intf_name2,
+                bw=int(link['bw_mbps']),
+                delay=float(link['delay_ms']),
+                jitter=float(link['jitter_ms']),
+                loss=int(float(link['loss_pct'])),
                 use_htb=True
             )
             # 启用接口

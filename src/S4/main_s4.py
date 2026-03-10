@@ -73,9 +73,9 @@ if __name__ == '__main__':
                 engine.ExecuteReq(req['node_id'], req['content_id'], timer, 'output/networks.csv')
                 req_ind += 1
             timer += 100
-            time.sleep(0.1)
+            # time.sleep(0.1)
     except KeyboardInterrupt:
-        engine.PrintGraph()
+        # engine.PrintGraph()
         pass
     finally:
         engine.StopNet()
