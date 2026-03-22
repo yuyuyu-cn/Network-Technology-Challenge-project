@@ -70,17 +70,15 @@
     <div id="nav-bar">
         <span class="group-label">视角模式</span>
         <div class="btn-group">
-            <button id="view-ov" class="nav-btn active" onclick="changeView('OVERVIEW')">全局概览</button>
-            <button id="view-track" class="nav-btn" onclick="changeView('FOLLOW')">跟踪</button>
+            <!-- 移除全局概览与跟踪按钮，保留选择框作为视图模式 -->
+            <select id="node-selector" onchange="selectTarget(this.value)">
+                <option value="">视图模式...</option>
+            </select>
         </div>
-
-        <select id="node-selector" onchange="selectTarget(this.value)">
-            <option value="">快速定位...</option>
-        </select>
 
         <div style="width: 1px; height: 16px; background: #233446;"></div>
 
-        <button id="toggle-ana" class="toggle-btn" onclick="toggleOption('ANA')">数据分析</button>
+        <button id="toggle-ana" class="toggle-btn" onclick="toggleOption('ANA')">网络拓扑</button>
     </div>
 
     <div id="app"></div>
