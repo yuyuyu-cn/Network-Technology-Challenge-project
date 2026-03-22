@@ -5,6 +5,7 @@ import json
 import math
 import networkx as nx
 import glob
+import random
 import os
 
 # --- 全局配置 ---
@@ -12,20 +13,41 @@ MAX_LINK_RANGE = 5000 * 1000
 MIN_ELEVATION_DEG = 10.0      
 SPEED_OF_LIGHT = 3e8             
 
-# ★★★ 扩展业务配置 (模拟内容分布) ★★★
-# 我们定义三种文件，分布在不同的节点上
-CONTENT_LOCATIONS = {
-    "UAV_01": ["map.tif", "sos_cmd.txt"], # 前线无人机缓存了地图和指令
-    "UAV_02": ["sos_cmd.txt"],            # 另一架无人机只有指令
-    "SAT_63188": ["video.ts", "map.tif", "sos_cmd.txt"], # 源站卫星拥有所有文件
-    "SAT_63189": ["video.ts", "sos_cmd.txt"]             # 备用卫星
-}
-
-# 业务虚拟 IP 映射 (用于路由匹配)
-SERVICE_IPS = {
-    "map.tif": "10.99.1.1/32",      # 地图服务虚拟IP
-    "video.ts": "10.99.2.1/32",     # 视频服务虚拟IP
-    "sos_cmd.txt": "10.99.3.1/32"   # 紧急指令虚拟IP
+# 这里我们不再使用 CONTENT_LOCATIONS 找缓存，而是建立持续的端到端数据流
+FLOWS = {
+    # 1. 全局控制流 (生命线)：GS -> 所有 UAV (双向也行，这里模拟下行指令)
+    "CTRL_FLOW": {
+        "src": "GS_01",
+        "priority": "HIGH",     # 高优：只看重稳定性 (Lifetime)
+        "base_bw_mbps": 0.01,   # 10 kbps = 0.01 Mbps
+        "dst_cidr": "10.99.0.0/24" # 虚拟指令网段
+    },
+    
+    # 2. 视频回传流 (UAV -> GS_01)
+    "VIDEO_FLOW_UAV_01": {
+        "src": "UAV_01",
+        "priority": "NORMAL",   # 普通：看重延迟和带宽
+        "base_bw_mbps": 10.0,   # 初始低清 10 Mbps
+        "burst_time_s": 180,    # 第 3 分钟爆发
+        "burst_bw_mbps": 40.0,  # 爆发后高清 40 Mbps
+        "dst_cidr": "10.88.1.1/32" # 回传目标虚拟 IP
+    },
+    "VIDEO_FLOW_UAV_02": {
+        "src": "UAV_02",
+        "priority": "NORMAL",
+        "base_bw_mbps": 10.0,
+        "burst_time_s": 300,    # 第 5 分钟爆发
+        "burst_bw_mbps": 40.0,
+        "dst_cidr": "10.88.2.1/32"
+    },
+    "VIDEO_FLOW_UAV_03": {
+        "src": "UAV_03",
+        "priority": "NORMAL",
+        "base_bw_mbps": 10.0,
+        "burst_time_s": 360,    # 第 6 分钟爆发
+        "burst_bw_mbps": 40.0,
+        "dst_cidr": "10.88.3.1/32"
+    }
 }
 
 class NumpyEncoder(json.JSONEncoder):
@@ -172,128 +194,125 @@ def compute_topology(nodes_df, time_ms):
                 'bw_mbps': bw,
                 'max_queue_pkt': calculate_bdp_queue(bw, delay),
                 'type': f"{type_a}-{type_b}",
-                'status': status  # 这里写入状态
+                'status': status,  # 这里写入状态
+                'lifetime_ms': 60000  # 默认链路寿命，单位毫秒
             })
             processed_pairs.add(pair_key)
     return links
 
 # ---------------------------------------------------------
-# 模块 3: 路由策略 (保持不变)
+# 模块 3: 路由策略 
 # ---------------------------------------------------------
-def build_graph(links):
+def build_graph_for_flow(links, priority):
+    """
+    根据业务优先级，动态构建不同权重的图
+    """
     G = nx.Graph()
     for l in links:
-        G.add_edge(l['src'], l['dst'], weight=l['delay_ms'])
+        delay = l['delay_ms']
+        lifetime_sec = max(l['lifetime_ms'] / 1000.0, 0.1)
+        
+        # 核心创新：根据业务调整代价函数
+        if priority == 'HIGH':
+            # 控制流：极度厌恶频繁断链
+            # 寿命越短，惩罚极大；延迟大一点无所谓
+            stability_penalty = 1000.0 / lifetime_sec 
+            weight = delay * 0.1 + stability_penalty 
+        else:
+            # 视频流：对延迟敏感，但也能容忍一定的链路切换
+            stability_penalty = 50.0 / lifetime_sec
+            weight = delay * 1.0 + stability_penalty
+            
+        # 记录原始可用带宽，后续可用于拥塞控制
+        G.add_edge(l['src'], l['dst'], weight=weight, capacity=l['bw_mbps'])
+        
     return G
 
-def find_route(G, src_id, content, mode, node_ip_map):
-    candidates = []
-    if mode == 'Content-Aware':
-        for node, files in CONTENT_LOCATIONS.items():
-            if content in files and node in G.nodes:
-                candidates.append(node)
-    
-    if not candidates or mode == 'Greedy':
-        sat_candidates = [n for n in G.nodes if str(n).startswith('SAT_')]
-        if sat_candidates:
-            candidates = sat_candidates
-    
-    if not candidates: return None, None, None
 
-    best_target, best_path, min_cost = None, None, float('inf')
-
-    for target in candidates:
-        try:
-            cost = nx.shortest_path_length(G, src_id, target, weight='weight')
-            if cost < min_cost:
-                min_cost = cost
-                best_path = nx.shortest_path(G, src_id, target, weight='weight')
-                best_target = target
-        except: continue
+def get_current_bandwidth(flow_config, current_t_ms):
+    """
+    根据剧本时间，计算当前时刻的带宽需求，并加入随机扰动。
+    """
+    t_sec = current_t_ms / 1000.0
+    
+    # 判断是否进入爆发期 (高清画质)
+    if 'burst_time_s' in flow_config and t_sec >= flow_config['burst_time_s']:
+        base_bw = flow_config['burst_bw_mbps']
+    else:
+        base_bw = flow_config['base_bw_mbps']
         
-    if best_path and len(best_path) > 1:
-        nh_id = best_path[1]
-        nh_ip = node_ip_map.get(nh_id, "0.0.0.0")
-        return nh_id, nh_ip, best_target
-        
-    return None, None, None
+    # 加入 ±5% 的随机扰动 (Jitter)
+    # 使用 t_sec 作为随机种子的一部分，保证同一次运行的结果相对稳定但有波动
+    random.seed(int(t_sec * 10)) 
+    fluctuation = base_bw * random.uniform(-0.05, 0.05)
+    
+    current_bw = base_bw + fluctuation
+    return round(max(0.01, current_bw), 2) # 保留两位小数，且不能为负
 
 # ---------------------------------------------------------
-# 路由规则生成辅助函数 (新增)
+# 路由规则生成辅助函数
 # ---------------------------------------------------------
 def generate_routing_rules(active_links, time_ms, node_ip_map, active_nodes):
-    """
-    根据当前存活链路，生成多业务并发的路由规则
-    """
     rules = []
-    if not active_links:
-        return rules
+    if not active_links: return rules
+
+    # --- 1. 处理全局控制流 (GS -> UAVs) ---
+    ctrl_flow = FLOWS["CTRL_FLOW"]
+    if ctrl_flow['src'] in active_nodes:
+        # 为高优控制流构建专门的图 (强调寿命)
+        G_ctrl = build_graph_for_flow(active_links, ctrl_flow['priority'])
         
-    G = build_graph(active_links)
+        # 寻找去往所有存活 UAV 的最稳路径
+        target_uavs = [n for n in active_nodes if n.startswith('UAV_')]
+        for target_uav in target_uavs:
+            try:
+                # 寻找最短路 (这里 weight 是倾向于长寿命的)
+                path = nx.shortest_path(G_ctrl, ctrl_flow['src'], target_uav, weight='weight')
+                if len(path) > 1:
+                    nh_id = path[1]
+                    rules.append({
+                        "time_ms": int(time_ms),
+                        "node": ctrl_flow['src'],
+                        "dst_cidr": ctrl_flow['dst_cidr'], # 指令网段
+                        "action": "replace",
+                        "next_hop": nh_id,
+                        "next_hop_ip": node_ip_map.get(nh_id, "0.0.0.0"),
+                        "algo": "Stability-First",
+                        "req_bw_mbps": get_current_bandwidth(ctrl_flow, time_ms), # ★ 记录当前带宽需求
+                        "debug_info": f"Ctrl command to {target_uav}"
+                    })
+            except: pass
 
-    # ==== 场景 1: 地面站 GS_01 请求边缘缓存文件 (map.tif) ====
-    # 预期: 聪明算法找 UAV_01，笨算法找 SAT_63188
-    if 'GS_01' in active_nodes:
-        # 1A. Content-Aware (智能算法)
-        nh_smart, nh_ip_smart, target_smart = find_route(G, 'GS_01', 'map.tif', 'Content-Aware', node_ip_map)
-        if nh_smart:
-            rules.append({
-                "time_ms": int(time_ms),
-                "node": "GS_01",
-                "dst_cidr": SERVICE_IPS['map.tif'], 
-                "action": "replace",
-                "next_hop": nh_smart,
-                "next_hop_ip": nh_ip_smart,
-                "algo": "Content-Aware-CGR",
-                "debug_info": f"[Smart] Fetch map.tif from {target_smart}"
-            })
+    # --- 2. 处理各无人机的视频回传流 (UAV -> GS_01) ---
+    target_gs = 'GS_01'
+    if target_gs not in active_nodes: return rules # 基站挂了，没法传视频
+
+    for flow_name, flow_config in FLOWS.items():
+        if flow_name.startswith("VIDEO_FLOW_"):
+            src_uav = flow_config['src']
+            if src_uav not in active_nodes: continue
             
-        # 1B. Greedy (基准笨算法)
-        nh_greedy, nh_ip_greedy, target_greedy = find_route(G, 'GS_01', 'map.tif', 'Greedy', node_ip_map)
-        # 只有两个算法选的路不一样时，才输出 Baseline，用于画对比图
-        if nh_greedy and nh_greedy != nh_smart:
-            rules.append({
-                "time_ms": int(time_ms),
-                "node": "GS_01",
-                "dst_cidr": "10.88.88.88/32", # 为对比组单独分配一个不同的虚拟IP
-                "action": "replace",
-                "next_hop": nh_greedy,
-                "next_hop_ip": nh_ip_greedy,
-                "algo": "Greedy-Baseline",
-                "debug_info": f"[Dumb] Forced fetch map.tif from {target_greedy}"
-            })
-
-    # ==== 场景 2: 地面站 GS_01 请求核心大文件 (video.ts) ====
-    # 预期: UAV 没有这个文件，算法被迫去找天上的卫星
-    if 'GS_01' in active_nodes:
-        nh_vid, nh_ip_vid, target_vid = find_route(G, 'GS_01', 'video.ts', 'Content-Aware', node_ip_map)
-        if nh_vid:
-            rules.append({
-                "time_ms": int(time_ms),
-                "node": "GS_01",
-                "dst_cidr": SERVICE_IPS['video.ts'], 
-                "action": "replace",
-                "next_hop": nh_vid,
-                "next_hop_ip": nh_ip_vid,
-                "algo": "Content-Aware-CGR",
-                "debug_info": f"[Smart] Stream video.ts from {target_vid}"
-            })
-
-    # ==== 场景 3: 无人机 UAV_01 作为中继转发紧急指令 ====
-    # 预期: UAV_01 如果需要向外转发 sos_cmd，它需要在图里找路
-    if 'UAV_01' in active_nodes:
-        nh_sos, nh_ip_sos, target_sos = find_route(G, 'UAV_01', 'sos_cmd.txt', 'Content-Aware', node_ip_map)
-        if nh_sos:
-             rules.append({
-                "time_ms": int(time_ms),
-                "node": "UAV_01",  # 此时是 UAV 在配路由表
-                "dst_cidr": SERVICE_IPS['sos_cmd.txt'], 
-                "action": "replace",
-                "next_hop": nh_sos,
-                "next_hop_ip": nh_ip_sos,
-                "algo": "Content-Aware-CGR",
-                "debug_info": f"[Relay] Forward SOS to {target_sos}"
-            })
+            # 为视频流构建图 (强调延迟与平衡)
+            G_video = build_graph_for_flow(active_links, flow_config['priority'])
+            
+            try:
+                path = nx.shortest_path(G_video, src_uav, target_gs, weight='weight')
+                if len(path) > 1:
+                    nh_id = path[1]
+                    current_bw = get_current_bandwidth(flow_config, time_ms)
+                    
+                    rules.append({
+                        "time_ms": int(time_ms),
+                        "node": src_uav, # ★ 视频流是 UAV 主动发起的，规则下发给 UAV
+                        "dst_cidr": flow_config['dst_cidr'], 
+                        "action": "replace",
+                        "next_hop": nh_id,
+                        "next_hop_ip": node_ip_map.get(nh_id, "0.0.0.0"),
+                        "algo": "Latency-Balanced",
+                        "req_bw_mbps": current_bw, # ★ 告诉 S4 现在需要多大带宽
+                        "debug_info": f"[{current_bw} Mbps] Video streaming to {target_gs}"
+                    })
+            except: pass
 
     return rules
 
