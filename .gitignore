@@ -1,5 +1,5 @@
 # dirs
 node_modules/
+vis/*.csv
 __pycache__/
 logs/
-vis/*.csv

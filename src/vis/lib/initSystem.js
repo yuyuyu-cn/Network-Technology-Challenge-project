@@ -1,13 +1,19 @@
 import * as Cesium from 'cesium';
 import Papa from 'papaparse';
 import { shared } from './state.js';
-// 3D 连线暂时禁用（如需恢复，取消下面注释并恢复 create3DLinks 的导入）
-// import { create3DLinks } from './links3d.js';
+import { create3DLinks } from './links3d.js';
 
 export async function initSystem(viewer) {
     try {
         // 使用全球真实地形并开启深度测试（恢复地形起伏）
         viewer.terrainProvider = await Cesium.createWorldTerrainAsync();
+        // 在 lib/initSystem.js 的 viewer.terrainProvider 附近添加：
+        try {
+            const buildingsTileset = await Cesium.createOsmBuildingsAsync();
+            viewer.scene.primitives.add(buildingsTileset);
+        } catch (error) {
+            console.error("加载 3D 建筑失败:", error);
+        }
         viewer.scene.globe.depthTestAgainstTerrain = true;
 
         const [topoRes, traceRes, satRes] = await Promise.all([
@@ -100,10 +106,38 @@ export async function initSystem(viewer) {
                 id: id,
                 position: posProp,
                 orientation: new Cesium.VelocityOrientationProperty(posProp),
-                model: { uri: isSat ? '/models/satellite.glb' : (isGsFlag ? '/models/gs.glb' : '/models/uav.glb'), minimumPixelSize: isSat ? 60 : 40, heightReference: Cesium.HeightReference.NONE },
-                label: { text: rows[0].name || id, font: '12px sans-serif', pixelOffset: new Cesium.Cartesian2(0, -40), outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE },
-                // 卫星：不显示过去轨迹（trailTime=0），显示短距离的未来轨迹（leadTime=8s），用白色发光实线
-                path: isSat ? { resolution: 1, width: 1.2, material: new Cesium.PolylineGlowMaterialProperty({ color: Cesium.Color.WHITE.withAlpha(0.9), glowPower: 0.15 }), leadTime: 8, trailTime: 0 } : undefined
+                model: { 
+                    uri: isSat ? '/models/satellite.glb' : (isGsFlag ? '/models/gs.glb' : '/models/uav.glb'), 
+                    minimumPixelSize: isSat ? 60 : 40, 
+                    heightReference: Cesium.HeightReference.NONE 
+                },
+                label: {
+                    text: rows[0].name || id,
+                    // 1. 换用更锐利的系统无衬线字体，并加上 bold (加粗)，能大幅减少细线条带来的边缘发虚
+                    font: 'bold 48px Arial, Helvetica, sans-serif',
+                
+                    scale: 0.25,
+                
+                    // 2. 缩小描边宽度。之前的 outlineWidth: 8 太粗了，在 WebGL 中渲染很容易变成一团黑糊糊的边缘。降到 4 左右刚刚好。
+                    style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                    outlineWidth: 4,
+                    fillColor: Cesium.Color.WHITE,
+                    outlineColor: Cesium.Color.BLACK.withAlpha(0.7), // 给描边加一点点透明度，让边缘过渡更柔和
+                
+                // 3. 极其关键：禁用深度测试。防止文字在旋转视角时陷入模型或地球内部产生锯齿和闪烁
+                    disableDepthTestDistance: Number.POSITIVE_INFINITY, 
+                
+                    pixelOffset: new Cesium.Cartesian2(0, -40),
+                    horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+                    verticalOrigin: Cesium.VerticalOrigin.BOTTOM
+                },
+                path: isSat ? { 
+                    resolution: 1, 
+                    width: 1.2, 
+                    material: new Cesium.PolylineGlowMaterialProperty({ color: Cesium.Color.WHITE.withAlpha(0.9), glowPower: 0.15 }), 
+                    leadTime: 8, 
+                    trailTime: 0 
+                } :   undefined
             });
             shared.entityMap.set(id, entity);
         });

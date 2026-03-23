@@ -5,90 +5,186 @@
     <title>Star-CDN 态势感知系统 v5.0</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
-        :root { --panel-bg: rgba(5, 15, 25, 0.95); --accent: #00f2ff; }
+        :root { 
+            --panel-bg: rgba(10, 20, 35, 0.75); 
+            --accent: #00f2ff; 
+        }
         
-        /* 1. 确保最外层容器有固定尺寸 */
         body, html { 
             margin: 0; padding: 0; width: 100%; height: 100%; 
-            overflow: hidden; background: #000; 
-            color: white; font-family: "Microsoft YaHei", sans-serif; 
+            overflow: hidden; background: #000; color: white; 
+            font-family: "Microsoft YaHei", -apple-system, sans-serif; 
         }
         
-        /* 2. 主容器必须撑满，否则地球无法显示 */
+        /* 1. 强制锁定主 3D 容器全屏！防备 main.js 压缩地图 */
         #app { 
-            width: 100%; 
-            height: 100%; /* 默认全屏 */
-            position: relative; 
-            transition: height 0.4s ease-in-out; 
+            position: absolute !important; 
+            top: 0 !important; 
+            left: 0 !important; 
+            width: 100% !important; 
+            height: 100% !important; 
+            z-index: 1 !important; 
+            transition: none !important; /* 彻底禁用原有的地图收缩动画 */
         }
 
-        /* 顶部控制面板 */
+        /* --- 2. 顶部 HUD 控制台 --- */
         #nav-bar { 
-            position: absolute; top: 20px; left: 50%; transform: translateX(-50%); 
-            display: flex; gap: 15px; z-index: 1000; 
-            background: var(--panel-bg); padding: 8px 18px; 
-            border-radius: 6px; border: 1px solid rgba(0, 242, 255, 0.3);
-            align-items: center; box-shadow: 0 4px 20px rgba(0,0,0,0.9);
+            position: absolute; top: 25px; left: 50%; transform: translateX(-50%); 
+            display: flex; gap: 20px; z-index: 1000; 
+            background: var(--panel-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            padding: 10px 24px; border-radius: 12px; border: 1px solid rgba(0, 242, 255, 0.2);
+            align-items: center; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 0 15px rgba(0, 242, 255, 0.05);
+            white-space: nowrap;
         }
 
-        .group-label { font-size: 11px; color: #666; text-transform: uppercase; }
+        .nav-brand { font-size: 16px; font-weight: bold; color: #fff; letter-spacing: 1px; text-shadow: 0 0 10px rgba(0, 242, 255, 0.5); }
+        .nav-brand span { color: var(--accent); font-weight: normal; }
+        .nav-divider { width: 1px; height: 24px; background: linear-gradient(to bottom, transparent, rgba(0, 242, 255, 0.3), transparent); }
+        .nav-control-group { display: flex; align-items: center; gap: 12px; }
+        .group-label { font-size: 12px; color: #8ab4f8; letter-spacing: 1px; text-transform: uppercase; }
+
+        .select-wrapper { position: relative; }
+        .select-wrapper::after { content: "▼"; position: absolute; right: 12px; top: 50%; transform: translateY(-50%) scale(0.8); font-size: 12px; color: var(--accent); pointer-events: none; }
         
-        .btn-group { display: flex; background: #0a141e; border-radius: 4px; padding: 2px; border: 1px solid #233446; }
-        .nav-btn { 
-            background: transparent; border: none; color: #95a5a6; 
-            padding: 5px 12px; cursor: pointer; border-radius: 3px; 
-            font-size: 13px; transition: 0.2s;
-        }
-        .nav-btn.active { background: var(--accent); color: #000; font-weight: bold; }
-
-        .toggle-btn {
-            background: #0a141e; border: 1px solid #233446; color: #95a5a6;
-            padding: 5px 12px; cursor: pointer; border-radius: 4px; font-size: 13px;
-        }
-        .toggle-btn.on { border-color: var(--accent); color: var(--accent); }
-
         #node-selector { 
-            background: #000; color: var(--accent); border: 1px solid #233446;
-            padding: 4px; border-radius: 4px; outline: none; font-size: 13px;
+            appearance: none; -webkit-appearance: none; background: rgba(0, 242, 255, 0.05); 
+            color: #fff; border: 1px solid rgba(0, 242, 255, 0.3); padding: 6px 32px 6px 14px; 
+            border-radius: 6px; outline: none; font-size: 13px; cursor: pointer; transition: all 0.3s ease; font-family: inherit;
         }
+        #node-selector:hover, #node-selector:focus { border-color: var(--accent); box-shadow: 0 0 12px rgba(0, 242, 255, 0.2); background: rgba(0, 242, 255, 0.1); }
+        #node-selector option { background: #0a141e; color: #fff; }
 
-        /* 3. 分析面板初始高度为0，不影响地球加载 */
+        .tech-btn {
+            display: flex; align-items: center; gap: 8px; background: rgba(0, 242, 255, 0.05); 
+            border: 1px solid rgba(0, 242, 255, 0.3); color: #e0f7fa; padding: 6px 16px; 
+            cursor: pointer; border-radius: 6px; font-size: 13px; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+        .tech-btn:hover { background: rgba(0, 242, 255, 0.15); border-color: var(--accent); color: #fff; box-shadow: 0 0 15px rgba(0, 242, 255, 0.3); transform: translateY(-1px); }
+        .tech-btn.on { background: var(--accent); border-color: var(--accent); color: #000; font-weight: bold; box-shadow: 0 0 20px rgba(0, 242, 255, 0.5); }
+        .btn-icon { margin-top: -1px; }
+
+        /* --- 3. 终极防御版：右下角悬浮 HUD 拓扑面板 --- */
+        /* 使用大量的 !important 防御 main.js 可能植入的 inline-style */
         #analytics-view { 
-            position: fixed; bottom: 0; left: 0; width: 100%; height: 0; 
-            background: #050b14; transition: height 0.4s ease-in-out; 
-            z-index: 1001; display: flex; overflow: hidden;
+            position: fixed !important; 
+            bottom: 25px !important; 
+            right: 25px !important; 
+            left: auto !important; /* 强制抵消 main.js 里的 left: 0 */
+            
+            width: 480px !important; 
+            height: 380px !important; 
+            
+            background: var(--panel-bg) !important; 
+            backdrop-filter: blur(12px) !important;
+            -webkit-backdrop-filter: blur(12px) !important;
+            border: 1px solid rgba(0, 242, 255, 0.3) !important;
+            border-radius: 12px !important; 
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), inset 0 0 15px rgba(0, 242, 255, 0.1) !important;
+            
+            z-index: 1001 !important; 
+            display: block !important; /* 永远保持区块渲染，防止内部 Echarts 宽高变成 0 */
+            
+            /* 动画状态 */
+            transform: translateX(120%) !important; 
+            opacity: 0 !important;
+            pointer-events: none !important;
+            transition: transform 0.5s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.5s ease !important;
+            
+            overflow: hidden !important; 
         }
         
-        /* 当面板打开时，给它加个顶边框 */
-        #analytics-view.open { border-top: 1px solid var(--accent); }
+        /* 展开状态 */
+        #analytics-view.open { 
+            transform: translateX(0) !important; 
+            opacity: 1 !important;
+            pointer-events: auto !important;
+        }
 
-        .chart-box { flex: 1; height: 100%; }
-        #topo-2d-container { flex: 1.5; border-right: 1px solid #1a2a3a; }
+        /* 4. 强制 ECharts 容器完全锁死在面板内部 */
+        .chart-box { 
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important; 
+            height: 100% !important; 
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        
+        #topo-2d-container { 
+            width: 100% !important; 
+            height: 100% !important; 
+            background: transparent !important;
+        }
+        
+        /* 彻底隐藏被废弃的副容器 */
+        #main-chart-right { display: none !important; }
     </style>
 </head>
 <body>
-    <div id="nav-bar">
-        <span class="group-label">视角模式</span>
-        <div class="btn-group">
-            <!-- 移除全局概览与跟踪按钮，保留选择框作为视图模式 -->
-            <select id="node-selector" onchange="selectTarget(this.value)">
-                <option value="">视图模式...</option>
-            </select>
-        </div>
-
-        <div style="width: 1px; height: 16px; background: #233446;"></div>
-
-        <button id="toggle-ana" class="toggle-btn" onclick="toggleOption('ANA')">网络拓扑</button>
-    </div>
-
     <div id="app"></div>
     
+    <div id="nav-bar">
+        <div class="nav-brand">Star-CDN <span>态势感知</span></div>
+        <div class="nav-divider"></div>
+        <div class="nav-control-group">
+            <span class="group-label">视角模式</span>
+            <div class="select-wrapper">
+                <select id="node-selector" onchange="window.selectTarget && window.selectTarget(this.value)">
+                    <option value="" disabled selected>选择视图...</option>
+                    <option value="global">全球概览</option>
+                </select>
+            </div>
+        </div>
+        <div class="nav-divider"></div>
+        <button id="toggle-ana" class="tech-btn" onclick="handleToggleAna()">
+            <svg class="btn-icon" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+                <circle cx="18" cy="5" r="3"></circle>
+                <circle cx="6" cy="12" r="3"></circle>
+                <circle cx="18" cy="19" r="3"></circle>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+            </svg>
+            网络拓扑
+        </button>
+    </div>
+
     <div id="analytics-view">
         <div id="topo-2d-container" class="chart-box"></div>
         <div id="main-chart-right" class="chart-box"></div>
     </div>
 
     <script type="module" src="/main.js"></script>
+
+    <script>
+        function handleToggleAna() {
+            // 1. 调用原始的 main.js 逻辑以触发状态机变更
+            if (typeof window.toggleOption === 'function') {
+                window.toggleOption('ANA');
+            }
+
+            // 2. 接管 UI 样式切换
+            const btn = document.getElementById('toggle-ana');
+            const view = document.getElementById('analytics-view');
+            
+            btn.classList.toggle('on');
+            view.classList.toggle('open');
+
+            // 3. 终极图表修复：主动捕获 Echarts 实例，强迫它适应新的悬浮框尺寸
+            setTimeout(() => {
+                const container = document.getElementById('topo-2d-container');
+                if (container) {
+                    // 通过 echarts 的内置方法找到图表实例
+                    const chartInstance = echarts.getInstanceByDom(container);
+                    if (chartInstance) {
+                        // 强制图表重新计算自己在新悬浮框内的大小，防止其画出框外
+                        chartInstance.resize();
+                    }
+                }
+                // 兜底派发全局事件
+                window.dispatchEvent(new Event('resize'));
+            }, 550); // 这里的 550ms 必须略大于 CSS 中的 0.5s 滑动动画时间
+        }
+    </script>
 </body>
 </html>
-

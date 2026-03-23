@@ -8,7 +8,6 @@ export function create3DLinks(viewer) {
     const visualLinks = [];
     const ids = Array.from(shared.entityMap.keys());
 
-    // 如果节点数量较大，避免创建 O(n^2) 的所有连线，改为仅创建出现在 topologyEvents 的连线
     const MAX_FULL_PAIRS = 120;
     let pairs = [];
     if (ids.length <= MAX_FULL_PAIRS) {
