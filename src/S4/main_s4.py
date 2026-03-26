@@ -6,6 +6,8 @@ import csv
 import time
 import json
 
+from generate import generate_sar_traffic
+
 
 if cf.MODE == "soft":
     from mode_b import Engine
@@ -43,7 +45,7 @@ def ReadRules(json_path):
             rule['action'] = tmp_action
         return data['meta'], data['rules']
 
-def GetAllFiles(relative_path):
+def GetAllFiles(relative_path)->list:
     """
     返回指定文件夹下的所有csv和json文件的绝对路径，按文件名中最后一个下划线后的数字排序
 
@@ -55,12 +57,12 @@ def GetAllFiles(relative_path):
     # 检查路径是否存在
     if not os.path.exists(absolute_path):
         LogColor.error(f"路径 {absolute_path} 不存在")
-        return
+        return []
     
     # 检查是否为目录
     if not os.path.isdir(absolute_path):
         LogColor.error(f"路径 {absolute_path} 不是一个文件夹")
-        return
+        return []
     
     resp = []
     # 遍历文件夹中的文件
@@ -82,32 +84,50 @@ def GetAllFiles(relative_path):
     resp.sort(key=extract_number)
     return resp
 
+            
+
 def run():
     engine = Engine()
     timer = 0
+
+    sat_csv = GetAllFiles(cf.sat_dir)
+    for sat in sat_csv:
+        engine.Get_ip(sat)
+
+    engine.Get_ip(cf.uav_csv)
+
+    uav_list = ['UAV_01', 'UAV_02', 'UAV_03']
+    main_gs = 'GS_01'
+
+    for uav in uav_list:
+        engine.AddContent(target=uav, filename=f'telemetry_{uav}', filesize=0.1)
+
+    reqs = generate_sar_traffic(uav_list,main_gs)
+
+    
     for csv_file, rules_file in zip(GetAllFiles(csv_dir), GetAllFiles(rules_dir)):
         LogColor.info(f"csv file: {csv_file}\nrules file: {rules_file}\n")
         links = ReadLinks(csv_file)
         meta, rules = ReadRules(rules_file)
-        engine.AddContent('UAV_01', 'test.jpg', filesize=50)
+        engine.AddContent('UAV_03', 'test.jpg', filesize=50)
+
         tmp_timer = 0
         rule_ind = 0
         req_ind = 0
         edge_ind = 0
-        reqs = [
-        ]
+        # 建议放在 run() 函数内部
 
         try:
             while tmp_timer < 60000:
                 LogColor.info(f'time : {timer}')
                 while edge_ind < len(links) and int(links[edge_ind]['time_ms']) <= timer:
                     engine.addLink(links[edge_ind])
-                    LogColor.debug(f'edge {edge_ind} applied')
+                    # LogColor.debug(f'edge {edge_ind} applied')
                     edge_ind += 1
 
                 while rule_ind < len(rules) and rules[rule_ind]['time_ms'] <= timer:
                     engine.UpdateRule(rules[rule_ind], meta)
-                    LogColor.debug(f'rule {rule_ind} applied')
+                    # LogColor.debug(f'rule {rule_ind} applied')
                     rule_ind += 1
                 while req_ind < len(reqs) and reqs[req_ind]['time']  <= timer:
                     req = reqs[req_ind]
