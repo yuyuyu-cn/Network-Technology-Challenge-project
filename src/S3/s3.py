@@ -15,7 +15,7 @@ SPEED_OF_LIGHT = 3e8
 
 # 这里我们不再使用 CONTENT_LOCATIONS 找缓存，而是建立持续的端到端数据流
 FLOWS = {
-    # 1. 全局控制流 (生命线)：GS -> 所有 UAV (双向也行，这里模拟下行指令)
+    # 1. 全局控制流 ：GS -> 所有 UAV
     "CTRL_FLOW": {
         "src": "GS_01",
         "priority": "HIGH",     # 高优：只看重稳定性 (Lifetime)
@@ -265,9 +265,10 @@ def generate_routing_rules(active_links, time_ms, node_ip_map, active_nodes):
         # 为高优控制流构建专门的图 (强调寿命)
         G_ctrl = build_graph_for_flow(active_links, ctrl_flow['priority'])
         
-        # 寻找去往所有存活 UAV 的最稳路径
+        # 寻找去往 UAV 们的路径（取第一个 UAV 作为代表）
         target_uavs = [n for n in active_nodes if n.startswith('UAV_')]
-        for target_uav in target_uavs:
+        if target_uavs:
+            target_uav = target_uavs[0]  # 取第一个 UAV
             try:
                 # 寻找最短路 (这里 weight 是倾向于长寿命的)
                 path = nx.shortest_path(G_ctrl, ctrl_flow['src'], target_uav, weight='weight')
@@ -282,7 +283,7 @@ def generate_routing_rules(active_links, time_ms, node_ip_map, active_nodes):
                         "next_hop_ip": node_ip_map.get(nh_id, "0.0.0.0"),
                         "algo": "Stability-First",
                         "req_bw_mbps": get_current_bandwidth(ctrl_flow, time_ms), # ★ 记录当前带宽需求
-                        "debug_info": f"Ctrl command to {target_uav}"
+                        "debug_info": f"Ctrl command to UAVs"
                     })
             except: pass
 
