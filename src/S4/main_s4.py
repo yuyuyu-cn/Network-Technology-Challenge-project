@@ -5,6 +5,7 @@ import os
 import csv
 import time
 import json
+import datetime
 
 from generate import generate_sar_traffic
 
@@ -88,9 +89,15 @@ def GetAllFiles(relative_path)->list:
 
 def run():
     engine = Engine()
+
     timer = 0
+    req_ind = 0
+
+    time_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_csv = f'output/networks_{time_str}.csv'
 
     sat_csv = GetAllFiles(cf.sat_dir)
+
     for sat in sat_csv:
         engine.Get_ip(sat)
 
@@ -102,9 +109,8 @@ def run():
     for uav in uav_list:
         engine.AddContent(target=uav, filename=f'telemetry_{uav}', filesize=0.1)
 
-    reqs = generate_sar_traffic(uav_list,main_gs)
+    reqs = generate_sar_traffic(uav_list,main_gs,max_time_ms=600000)
 
-    
     for csv_file, rules_file in zip(GetAllFiles(csv_dir), GetAllFiles(rules_dir)):
         LogColor.info(f"csv file: {csv_file}\nrules file: {rules_file}\n")
         links = ReadLinks(csv_file)
@@ -113,7 +119,6 @@ def run():
 
         tmp_timer = 0
         rule_ind = 0
-        req_ind = 0
         edge_ind = 0
         # 建议放在 run() 函数内部
 
@@ -131,7 +136,7 @@ def run():
                     rule_ind += 1
                 while req_ind < len(reqs) and reqs[req_ind]['time']  <= timer:
                     req = reqs[req_ind]
-                    engine.ExecuteReq(req['node_id'], req['content_id'], timer, 'output/networks.csv')
+                    engine.ExecuteReq(req['node_id'], req['content_id'], timer, output_csv)
                     req_ind += 1
                 timer += 100
                 tmp_timer += 100
