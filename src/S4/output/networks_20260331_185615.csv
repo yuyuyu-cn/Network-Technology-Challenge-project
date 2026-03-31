@@ -1,7 +1,0 @@
-time_ms,req_id,node_id,content_id,file_size_MB,algo,path,server_node,latency_ms,throughput_mbps,http_code,cache_status,download_time
-100,1,UAV_02,status_update_UAV_02,0.2,Latency-Balanced,['UAV_02'],UAV_02,0.0,inf,200,HIT,0.0
-100,2,UAV_03,status_update_UAV_03,0.2,Latency-Balanced,['UAV_03'],UAV_03,0.0,inf,200,HIT,0.0
-100,3,UAV_02,fuel_status_UAV_02,0.1,Latency-Balanced,['UAV_02'],UAV_02,0.0,inf,200,HIT,0.0
-100,4,UAV_01,fuel_status_UAV_01,0.1,Latency-Balanced,['UAV_01'],UAV_01,0.0,inf,200,HIT,0.0
-100,5,UAV_03,fuel_status_UAV_03,0.1,Latency-Balanced,['UAV_03'],UAV_03,0.0,inf,200,HIT,0.0
-100,6,UAV_01,status_update_UAV_01,0.2,Latency-Balanced,['UAV_01'],UAV_01,0.0,inf,200,HIT,0.0
